@@ -7,7 +7,7 @@
     <Grid Margin="20">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
-            <RowDefinition Height="3*"/>
+            <RowDefinition Height="4*"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
@@ -28,7 +28,35 @@
 
         <!-- Section 2: Subtitle Track Listing -->
         <TextBlock Grid.Row="1" Text="Available Subtitle Tracks:" Foreground="#AAA" Margin="0,0,0,5"/>
-        <ListBox x:Name="LstSubtitles" Grid.Row="1" Background="#2D2D2D" Foreground="#FFF" BorderBrush="#555" Margin="0,0,0,15" FontSize="16"/>
+        <Border Grid.Row="1" Background="#2D2D2D" BorderBrush="#555" BorderThickness="1" Margin="0,20,0,15">
+            <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+                <ItemsControl x:Name="LstSubtitles" Foreground="#FFF" FontSize="24" Margin="8">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <WrapPanel Orientation="Vertical"/>
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <TextBlock Text="{Binding Text}" Margin="0,0,24,6">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Foreground" Value="#CCC"/>
+                                        <Setter Property="FontWeight" Value="Normal"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                                                <Setter Property="Foreground" Value="#00FFCC"/>
+                                                <Setter Property="FontWeight" Value="Bold"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </ScrollViewer>
+        </Border>
 
         <!-- Section 3: Debug Logging -->
         <TextBlock Grid.Row="2" Text="Debug Log:" Foreground="#AAA" Margin="0,0,0,5"/>

@@ -4,7 +4,6 @@ using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
-using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Interop;
 using System.Windows.Threading;
@@ -16,7 +15,7 @@ using System.Runtime.InteropServices;
 // The program will also poll kodi for the current zoom and subtitle state and display it in a simple gui.
 //
 // The program will allow the user:
-// - to change the zoom level of the video (up/down by 0.1x using Ctrl+Shift+Alt+F1/F2).
+// - to change the zoom level of the video (down/up by 0.1x using Ctrl+Shift+Alt+F1/F2).
 // - to change the subtitle track of the video (using Ctrl+Shift+Alt+F3/F4).
 // - to toggle the subtitle track on/off (using Ctrl+Shift+Alt+F5).
 // - to display the current zoom level and subtitle track in the gui.
@@ -117,16 +116,16 @@ namespace KodiListenerGui
             switch (id)
             {
                 case 1:
-                    await AdjustZoomAsync(0.1);
+                    await AdjustZoomAsync(-0.01);
                     break;
                 case 2:
-                    await AdjustZoomAsync(-0.1);
+                    await AdjustZoomAsync(0.01);
                     break;
                 case 3:
-                    await SetSubtitleAsync("next");
+                    await SetSubtitleAsync("previous");
                     break;
                 case 4:
-                    await SetSubtitleAsync("previous");
+                    await SetSubtitleAsync("next");
                     break;
                 case 5:
                     await ToggleSubtitleAsync();
@@ -240,7 +239,7 @@ namespace KodiListenerGui
                 }
             }
 
-            var subtitleLines = new List<string>();
+            var subtitleLines = new List<SubtitleTrackItem>();
             if (properties.ValueKind == JsonValueKind.Object
                 && properties.TryGetProperty("subtitles", out var subsEl)
                 && subsEl.ValueKind == JsonValueKind.Array)
@@ -250,8 +249,12 @@ namespace KodiListenerGui
                     int index = sub.GetProperty("index").GetInt32();
                     string name = sub.TryGetProperty("name", out var n) ? n.GetString() ?? "" : "";
                     string language = sub.TryGetProperty("language", out var l) ? l.GetString() ?? "" : "";
-                    string marker = index == currentIndex && subtitleEnabled ? " [Selected]" : "";
-                    subtitleLines.Add($"{index + 1}. {name} ({language}){marker}");
+                    bool isSelected = index == currentIndex && subtitleEnabled;
+                    subtitleLines.Add(new SubtitleTrackItem
+                    {
+                        Text = $"{index + 1}. {name} ({language})",
+                        IsSelected = isSelected
+                    });
                 }
             }
 
