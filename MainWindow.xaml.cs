@@ -279,7 +279,7 @@ namespace KodiListenerGui
                 }
                 if (subtitleEnabled && currentEl.TryGetProperty("name", out var nameEl))
                 {
-                    activeSubtitleText = nameEl.GetString() ?? "Unknown";
+                    activeSubtitleText = FormatSubtitleLabel(currentEl);
                 }
             }
 
@@ -291,12 +291,10 @@ namespace KodiListenerGui
                 foreach (var sub in subsEl.EnumerateArray())
                 {
                     int index = sub.GetProperty("index").GetInt32();
-                    string name = sub.TryGetProperty("name", out var n) ? n.GetString() ?? "" : "";
-                    string language = sub.TryGetProperty("language", out var l) ? l.GetString() ?? "" : "";
                     bool isSelected = index == currentIndex && subtitleEnabled;
                     subtitleLines.Add(new SubtitleTrackItem
                     {
-                        Text = $"{index + 1}. {name} ({language})",
+                        Text = $"{index + 1}. {FormatSubtitleLabel(sub)}",
                         IsSelected = isSelected
                     });
                 }
@@ -370,6 +368,36 @@ namespace KodiListenerGui
             int minutes = timeEl.TryGetProperty("minutes", out var m) ? m.GetInt32() : 0;
             int seconds = timeEl.TryGetProperty("seconds", out var s) ? s.GetInt32() : 0;
             return new TimeSpan(hours, minutes, seconds);
+        }
+
+        // Mirrors Kodi's own subtitle labeling, e.g. "English (eng, forced, default)" or just "Italiano" when no flags apply.
+        private static string FormatSubtitleLabel(JsonElement subtitleEl)
+        {
+            string name = subtitleEl.TryGetProperty("name", out var n) ? n.GetString() ?? "" : "";
+            string language = subtitleEl.TryGetProperty("language", out var l) ? l.GetString() ?? "" : "";
+            bool isForced = subtitleEl.TryGetProperty("isforced", out var f) && f.GetBoolean();
+            bool isDefault = subtitleEl.TryGetProperty("isdefault", out var d) && d.GetBoolean();
+            bool isImpaired = subtitleEl.TryGetProperty("isimpaired", out var i) && i.GetBoolean();
+
+            var flags = new List<string>();
+            if (!string.IsNullOrEmpty(language))
+            {
+                flags.Add(language);
+            }
+            if (isForced)
+            {
+                flags.Add("forced");
+            }
+            if (isDefault)
+            {
+                flags.Add("default");
+            }
+            if (isImpaired)
+            {
+                flags.Add("sdh");
+            }
+
+            return flags.Count > 0 ? $"{name} ({string.Join(", ", flags)})" : name;
         }
 
         private static string FormatTimeSpan(TimeSpan ts)
