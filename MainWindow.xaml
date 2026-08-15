@@ -9,8 +9,8 @@
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="4*"/>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="*"/>
+            <RowDefinition x:Name="RowDebugLabel" Height="0"/>
+            <RowDefinition x:Name="RowDebugLog" Height="0"/>
         </Grid.RowDefinitions>
 
         <!-- Section 1: Kodi Live Status Indicators. Tap to toggle window/fullscreen mode for touch devices without a keyboard. -->
@@ -60,10 +60,10 @@
             </ScrollViewer>
         </Border>
 
-        <!-- Section 3: Debug Logging -->
-        <TextBlock Grid.Row="2" Text="Debug Log:" Foreground="#AAA" Margin="0,0,0,5"/>
+        <!-- Section 3: Debug Logging. Hidden while fullscreen; shown in windowed mode. -->
+        <TextBlock x:Name="LblDebugLog" Grid.Row="2" Text="Debug Log:" Foreground="#AAA" Margin="0,0,0,5" Visibility="Collapsed"/>
         <TextBox x:Name="TxtLog" Grid.Row="3" Background="#111" Foreground="#00FF00" FontSize="14"
                  FontFamily="Consolas" IsReadOnly="True" VerticalScrollBarVisibility="Auto"
-                 TextWrapping="Wrap" BorderBrush="#555"/>
+                 TextWrapping="Wrap" BorderBrush="#555" Visibility="Collapsed"/>
     </Grid>
 </Window>

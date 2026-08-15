@@ -111,6 +111,10 @@ namespace KodiListenerGui
                 WindowState = WindowState.Normal;
                 Width = 1400;
                 Height = 800;
+                RowDebugLabel.Height = GridLength.Auto;
+                RowDebugLog.Height = new GridLength(1, GridUnitType.Star);
+                LblDebugLog.Visibility = Visibility.Visible;
+                TxtLog.Visibility = Visibility.Visible;
                 Log("Switched to windowed mode. Use the title bar's close button to exit.");
             }
             else
@@ -118,6 +122,10 @@ namespace KodiListenerGui
                 WindowStyle = WindowStyle.None;
                 ResizeMode = ResizeMode.NoResize;
                 WindowState = WindowState.Maximized;
+                RowDebugLabel.Height = new GridLength(0);
+                RowDebugLog.Height = new GridLength(0);
+                LblDebugLog.Visibility = Visibility.Collapsed;
+                TxtLog.Visibility = Visibility.Collapsed;
                 Log("Switched to fullscreen mode.");
             }
             _isFullScreen = !_isFullScreen;
@@ -160,6 +168,10 @@ namespace KodiListenerGui
 
             // Refresh UI state after driving a command
             await FetchKodiStatusAsync();
+
+            // Delay the next automatic poll so it doesn't land right after this manual refresh
+            _pollTimer?.Stop();
+            _pollTimer?.Start();
         }
 
         private async Task<int?> GetActivePlayerIdAsync()
