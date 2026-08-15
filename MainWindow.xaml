@@ -17,40 +17,68 @@
         <GroupBox x:Name="StatusBox" Header="Kodi Status (tap to toggle window/fullscreen)" Grid.Row="0" Foreground="#00FFCC" BorderBrush="#555" Margin="0,0,0,15" Padding="10" FontSize="16"
                   Cursor="Hand" Background="#1E1E1E" MouseLeftButtonUp="StatusBox_MouseLeftButtonUp">
             <StackPanel>
-                <StackPanel Orientation="Horizontal">
-                    <StackPanel Margin="0,0,30,0">
-                        <TextBlock Text="Zoom Factor:" Foreground="#AAA" FontSize="20"/>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/> <!-- This expands to push the last item right -->
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+
+                    <!-- Zoom Factor (Left) -->
+                    <StackPanel Grid.Column="0" Margin="0,0,30,0">
+                        <TextBlock Text="Zoom Factor" Foreground="#AAA" FontSize="16"/>
                         <TextBlock x:Name="TxtZoom" Text="1.0x" FontSize="40" FontWeight="Bold" Foreground="#FFFF00"/>
                     </StackPanel>
-                    <StackPanel>
-                        <TextBlock Text="Active Subtitle:" Foreground="#AAA" FontSize="20"/>
+
+                    <!-- Active Subtitle (Middle-Left) -->
+                    <StackPanel Grid.Column="1">
+                        <TextBlock Text="Active Subtitle" Foreground="#AAA" FontSize="16"/>
                         <TextBlock x:Name="TxtActiveSubtitle" Text="None / Disabled" FontSize="40" FontWeight="Bold" Foreground="#00FFCC"/>
                     </StackPanel>
-                </StackPanel>
-                <StackPanel Orientation="Horizontal" Margin="0,15,0,0">
-                    <StackPanel Margin="0,0,30,0">
-                        <TextBlock Text="Now Playing:" Foreground="#AAA" FontSize="20"/>
-                        <TextBlock x:Name="TxtNowPlaying" Text="Nothing playing" FontSize="24" FontWeight="Bold" Foreground="#FFFFFF"/>
+
+                    <!-- Ends at (Far Right) -->
+                    <StackPanel Grid.Column="2" HorizontalAlignment="Right">
+                        <TextBlock Text="Ends at" Foreground="#AAA" FontSize="16" HorizontalAlignment="Right"/>
+                        <TextBlock x:Name="TxtEndsAt" Text="" FontSize="40" FontWeight="Bold" Foreground="#00FFCC"/>
                     </StackPanel>
-                    <StackPanel>
-                        <TextBlock Text="Status:" Foreground="#AAA" FontSize="20"/>
-                        <TextBlock x:Name="TxtPlaybackStatus" Text="-" FontSize="24" FontWeight="Bold" Foreground="#FFFFFF"/>
+                </Grid>
+                <Grid Margin="0,10,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Grid.Column="0" Margin="0,0,30,0">
+                        <TextBlock Text="Now Playing" Foreground="#AAA" FontSize="16"/>
+                        <TextBlock x:Name="TxtNowPlaying" Text="Nothing playing" FontSize="32" FontWeight="Bold" Foreground="#FFFFFF"/>
                     </StackPanel>
-                </StackPanel>
-                <StackPanel Margin="0,15,0,0">
-                    <TextBlock Text="Position:" Foreground="#AAA" FontSize="20"/>
-                    <TextBlock x:Name="TxtPosition" Text="-" FontSize="24" FontWeight="Bold" Foreground="#FFFFFF"/>
-                    <ProgressBar x:Name="PbPosition" Height="16" Minimum="0" Maximum="1" Value="0" Margin="0,8,0,0"
-                                 Foreground="#00FFCC" Background="#2D2D2D" BorderBrush="#555"/>
-                </StackPanel>
+                    <StackPanel Grid.Column="1">
+                        <TextBlock Text="Status" Foreground="#AAA" FontSize="16" HorizontalAlignment="Right"/>
+                        <TextBlock x:Name="TxtPlaybackStatus" Text="-" FontSize="32" FontWeight="Bold" Foreground="#FFFFFF"/>
+                    </StackPanel>
+                </Grid>
+                <Grid Margin="0,15,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+
+                    <!-- Assigned to Column 0 (Takes up remaining space) -->
+                    <!-- Added Right Margin to prevent the bar from touching the text -->
+                    <ProgressBar x:Name="PbPosition" Grid.Column="0" Height="16" Minimum="0" Maximum="1" Value="0" Margin="0,4,15,0"
+                                Foreground="#00FFCC" Background="#2D2D2D" BorderBrush="#555"/>
+
+                    <!-- Assigned to Column 1 (Sized to fit its content on the right) -->
+                    <TextBlock x:Name="TxtPosition" Grid.Column="1" Text="-" FontSize="24" FontWeight="Bold" Foreground="#FFFFFF"
+                            VerticalAlignment="Center"/>
+                </Grid>
             </StackPanel>
         </GroupBox>
 
         <!-- Section 2: Subtitle Track Listing -->
-        <TextBlock Grid.Row="1" Text="Available Subtitle Tracks:" Foreground="#AAA" Margin="0,0,0,5"/>
+        <TextBlock Grid.Row="1" Text="Available Subtitle Tracks" Foreground="#AAA" Margin="0,0,0,5"/>
         <Border Grid.Row="1" Background="#2D2D2D" BorderBrush="#555" BorderThickness="1" Margin="0,20,0,15">
             <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
-                <ItemsControl x:Name="LstSubtitles" Foreground="#FFF" FontSize="24" Margin="8">
+                <ItemsControl x:Name="LstSubtitles" Foreground="#FFF" FontSize="28" Margin="8">
                     <ItemsControl.ItemsPanel>
                         <ItemsPanelTemplate>
                             <WrapPanel Orientation="Vertical"/>
@@ -79,7 +107,7 @@
         </Border>
 
         <!-- Section 3: Debug Logging. Hidden while fullscreen; shown in windowed mode. -->
-        <TextBlock x:Name="LblDebugLog" Grid.Row="2" Text="Debug Log:" Foreground="#AAA" Margin="0,0,0,5" Visibility="Collapsed"/>
+        <TextBlock x:Name="LblDebugLog" Grid.Row="2" Text="Debug Log" Foreground="#AAA" Margin="0,0,0,5" Visibility="Collapsed"/>
         <TextBox x:Name="TxtLog" Grid.Row="3" Background="#111" Foreground="#00FF00" FontSize="14"
                  FontFamily="Consolas" IsReadOnly="True" VerticalScrollBarVisibility="Auto"
                  TextWrapping="Wrap" BorderBrush="#555" Visibility="Collapsed"/>

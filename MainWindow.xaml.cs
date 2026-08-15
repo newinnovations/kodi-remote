@@ -330,6 +330,7 @@ namespace KodiListenerGui
                 : TimeSpan.Zero;
 
             string positionText = FormatTimeSpan(position);
+            string endsAtText = "--:--";
             double progress = 0;
             if (total > TimeSpan.Zero)
             {
@@ -342,7 +343,7 @@ namespace KodiListenerGui
                     {
                         remaining = TimeSpan.Zero;
                     }
-                    positionText += $" \u00b7 ends {DateTime.Now.Add(remaining):HH:mm}";
+                    endsAtText = DateTime.Now.Add(remaining).ToString("HH:mm");
                 }
             }
 
@@ -353,6 +354,7 @@ namespace KodiListenerGui
                 TxtNowPlaying.Text = nowPlaying;
                 TxtPlaybackStatus.Text = playbackStatus;
                 TxtPosition.Text = positionText;
+                TxtEndsAt.Text = endsAtText;
                 PbPosition.Value = progress;
                 LstSubtitles.Items.Clear();
                 foreach (var line in subtitleLines)
