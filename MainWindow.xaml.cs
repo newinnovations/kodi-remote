@@ -47,7 +47,8 @@ namespace KodiListenerGui
 
         private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(5);
         private static readonly string[] SubtitleEnabledProperty = { "subtitleenabled" };
-        private static readonly string[] SubtitleStatusProperties = { "subtitles", "currentsubtitle", "subtitleenabled" };
+        private static readonly string[] PlayerStatusProperties = { "subtitles", "currentsubtitle", "subtitleenabled", "speed", "time", "totaltime" };
+        private static readonly string[] TitleRequestProperty = { "title" };
 
         private IntPtr _windowHandle;
         private HwndSource? _hwndSource;
@@ -245,6 +246,9 @@ namespace KodiListenerGui
                 {
                     TxtZoom.Text = "N/A";
                     TxtActiveSubtitle.Text = "No active player";
+                    TxtNowPlaying.Text = "Nothing playing";
+                    TxtPlaybackStatus.Text = "-";
+                    TxtPosition.Text = "-";
                     LstSubtitles.Items.Clear();
                 });
                 return;
@@ -253,8 +257,9 @@ namespace KodiListenerGui
             var properties = await SendKodiRequestAsync("Player.GetProperties", new
             {
                 playerid = playerId,
-                properties = SubtitleStatusProperties
+                properties = PlayerStatusProperties
             });
+            var item = await SendKodiRequestAsync("Player.GetItem", new { playerid = playerId, properties = TitleRequestProperty });
             double zoom = await GetCurrentZoomAsync();
 
             bool subtitleEnabled = properties.ValueKind == JsonValueKind.Object
@@ -296,16 +301,76 @@ namespace KodiListenerGui
                 }
             }
 
+            string nowPlaying = "Nothing playing";
+            if (item.ValueKind == JsonValueKind.Object
+                && item.TryGetProperty("item", out var itemEl)
+                && itemEl.ValueKind == JsonValueKind.Object)
+            {
+                if (itemEl.TryGetProperty("label", out var labelEl) && !string.IsNullOrEmpty(labelEl.GetString()))
+                {
+                    nowPlaying = labelEl.GetString()!;
+                }
+                else if (itemEl.TryGetProperty("title", out var titleEl) && !string.IsNullOrEmpty(titleEl.GetString()))
+                {
+                    nowPlaying = titleEl.GetString()!;
+                }
+            }
+
+            int speed = properties.ValueKind == JsonValueKind.Object && properties.TryGetProperty("speed", out var speedEl)
+                ? speedEl.GetInt32()
+                : 0;
+            string playbackStatus = speed == 0 ? "Paused" : speed == 1 ? "Playing" : $"Playing ({speed}x)";
+
+            TimeSpan position = properties.ValueKind == JsonValueKind.Object && properties.TryGetProperty("time", out var timeEl)
+                ? ParseKodiTime(timeEl)
+                : TimeSpan.Zero;
+            TimeSpan total = properties.ValueKind == JsonValueKind.Object && properties.TryGetProperty("totaltime", out var totalTimeEl)
+                ? ParseKodiTime(totalTimeEl)
+                : TimeSpan.Zero;
+
+            string positionText = FormatTimeSpan(position);
+            if (total > TimeSpan.Zero)
+            {
+                positionText += $" / {FormatTimeSpan(total)}";
+                if (speed > 0)
+                {
+                    TimeSpan remaining = total - position;
+                    if (remaining < TimeSpan.Zero)
+                    {
+                        remaining = TimeSpan.Zero;
+                    }
+                    positionText += $" \u00b7 ends {DateTime.Now.Add(remaining):HH:mm}";
+                }
+            }
+
             Dispatcher.Invoke(() =>
             {
                 TxtZoom.Text = $"{zoom:0.00}x";
                 TxtActiveSubtitle.Text = activeSubtitleText;
+                TxtNowPlaying.Text = nowPlaying;
+                TxtPlaybackStatus.Text = playbackStatus;
+                TxtPosition.Text = positionText;
                 LstSubtitles.Items.Clear();
                 foreach (var line in subtitleLines)
                 {
                     LstSubtitles.Items.Add(line);
                 }
             });
+        }
+
+        private static TimeSpan ParseKodiTime(JsonElement timeEl)
+        {
+            int hours = timeEl.TryGetProperty("hours", out var h) ? h.GetInt32() : 0;
+            int minutes = timeEl.TryGetProperty("minutes", out var m) ? m.GetInt32() : 0;
+            int seconds = timeEl.TryGetProperty("seconds", out var s) ? s.GetInt32() : 0;
+            return new TimeSpan(hours, minutes, seconds);
+        }
+
+        private static string FormatTimeSpan(TimeSpan ts)
+        {
+            return ts.TotalHours >= 1
+                ? $"{(int)ts.TotalHours}:{ts.Minutes:00}:{ts.Seconds:00}"
+                : $"{ts.Minutes}:{ts.Seconds:00}";
         }
 
         private async Task<JsonElement> SendKodiRequestAsync(string method, object? parameters = null)

@@ -16,14 +16,30 @@
         <!-- Section 1: Kodi Live Status Indicators. Tap to toggle window/fullscreen mode for touch devices without a keyboard. -->
         <GroupBox x:Name="StatusBox" Header="Kodi Status (tap to toggle window/fullscreen)" Grid.Row="0" Foreground="#00FFCC" BorderBrush="#555" Margin="0,0,0,15" Padding="10" FontSize="16"
                   Cursor="Hand" Background="#1E1E1E" MouseLeftButtonUp="StatusBox_MouseLeftButtonUp">
-            <StackPanel Orientation="Horizontal">
-                <StackPanel Margin="0,0,30,0">
-                    <TextBlock Text="Zoom Factor:" Foreground="#AAA" FontSize="20"/>
-                    <TextBlock x:Name="TxtZoom" Text="1.0x" FontSize="40" FontWeight="Bold" Foreground="#FFFF00"/>
+            <StackPanel>
+                <StackPanel Orientation="Horizontal">
+                    <StackPanel Margin="0,0,30,0">
+                        <TextBlock Text="Zoom Factor:" Foreground="#AAA" FontSize="20"/>
+                        <TextBlock x:Name="TxtZoom" Text="1.0x" FontSize="40" FontWeight="Bold" Foreground="#FFFF00"/>
+                    </StackPanel>
+                    <StackPanel>
+                        <TextBlock Text="Active Subtitle:" Foreground="#AAA" FontSize="20"/>
+                        <TextBlock x:Name="TxtActiveSubtitle" Text="None / Disabled" FontSize="40" FontWeight="Bold" Foreground="#00FFCC"/>
+                    </StackPanel>
                 </StackPanel>
-                <StackPanel>
-                    <TextBlock Text="Active Subtitle:" Foreground="#AAA" FontSize="20"/>
-                    <TextBlock x:Name="TxtActiveSubtitle" Text="None / Disabled" FontSize="40" FontWeight="Bold" Foreground="#00FFCC"/>
+                <StackPanel Orientation="Horizontal" Margin="0,15,0,0">
+                    <StackPanel Margin="0,0,30,0">
+                        <TextBlock Text="Now Playing:" Foreground="#AAA" FontSize="20"/>
+                        <TextBlock x:Name="TxtNowPlaying" Text="Nothing playing" FontSize="24" FontWeight="Bold" Foreground="#FFFFFF"/>
+                    </StackPanel>
+                    <StackPanel Margin="0,0,30,0">
+                        <TextBlock Text="Status:" Foreground="#AAA" FontSize="20"/>
+                        <TextBlock x:Name="TxtPlaybackStatus" Text="-" FontSize="24" FontWeight="Bold" Foreground="#FFFFFF"/>
+                    </StackPanel>
+                    <StackPanel>
+                        <TextBlock Text="Position:" Foreground="#AAA" FontSize="20"/>
+                        <TextBlock x:Name="TxtPosition" Text="-" FontSize="24" FontWeight="Bold" Foreground="#FFFFFF"/>
+                    </StackPanel>
                 </StackPanel>
             </StackPanel>
         </GroupBox>
