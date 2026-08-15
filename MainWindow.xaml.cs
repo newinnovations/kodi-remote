@@ -249,6 +249,7 @@ namespace KodiListenerGui
                     TxtNowPlaying.Text = "Nothing playing";
                     TxtPlaybackStatus.Text = "-";
                     TxtPosition.Text = "-";
+                    PbPosition.Value = 0;
                     LstSubtitles.Items.Clear();
                 });
                 return;
@@ -329,9 +330,11 @@ namespace KodiListenerGui
                 : TimeSpan.Zero;
 
             string positionText = FormatTimeSpan(position);
+            double progress = 0;
             if (total > TimeSpan.Zero)
             {
                 positionText += $" / {FormatTimeSpan(total)}";
+                progress = Math.Clamp(position.TotalSeconds / total.TotalSeconds, 0, 1);
                 if (speed > 0)
                 {
                     TimeSpan remaining = total - position;
@@ -350,6 +353,7 @@ namespace KodiListenerGui
                 TxtNowPlaying.Text = nowPlaying;
                 TxtPlaybackStatus.Text = playbackStatus;
                 TxtPosition.Text = positionText;
+                PbPosition.Value = progress;
                 LstSubtitles.Items.Clear();
                 foreach (var line in subtitleLines)
                 {

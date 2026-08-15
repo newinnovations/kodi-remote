@@ -32,14 +32,16 @@
                         <TextBlock Text="Now Playing:" Foreground="#AAA" FontSize="20"/>
                         <TextBlock x:Name="TxtNowPlaying" Text="Nothing playing" FontSize="24" FontWeight="Bold" Foreground="#FFFFFF"/>
                     </StackPanel>
-                    <StackPanel Margin="0,0,30,0">
+                    <StackPanel>
                         <TextBlock Text="Status:" Foreground="#AAA" FontSize="20"/>
                         <TextBlock x:Name="TxtPlaybackStatus" Text="-" FontSize="24" FontWeight="Bold" Foreground="#FFFFFF"/>
                     </StackPanel>
-                    <StackPanel>
-                        <TextBlock Text="Position:" Foreground="#AAA" FontSize="20"/>
-                        <TextBlock x:Name="TxtPosition" Text="-" FontSize="24" FontWeight="Bold" Foreground="#FFFFFF"/>
-                    </StackPanel>
+                </StackPanel>
+                <StackPanel Margin="0,15,0,0">
+                    <TextBlock Text="Position:" Foreground="#AAA" FontSize="20"/>
+                    <TextBlock x:Name="TxtPosition" Text="-" FontSize="24" FontWeight="Bold" Foreground="#FFFFFF"/>
+                    <ProgressBar x:Name="PbPosition" Height="16" Minimum="0" Maximum="1" Value="0" Margin="0,8,0,0"
+                                 Foreground="#00FFCC" Background="#2D2D2D" BorderBrush="#555"/>
                 </StackPanel>
             </StackPanel>
         </GroupBox>
