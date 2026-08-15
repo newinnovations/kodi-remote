@@ -425,12 +425,25 @@ namespace KodiListenerGui
             return default;
         }
 
+        private const int MaxLogChars = 20000;
+
         private void Log(string message)
         {
             // Thread-safe UI update for the TextBox
             Dispatcher.Invoke(() =>
             {
                 TxtLog.AppendText($"[{DateTime.Now:HH:mm:ss}] {message}\n");
+
+                // Trim from the front so the log can't grow unbounded during long-running sessions
+                if (TxtLog.Text.Length > MaxLogChars)
+                {
+                    int cutoff = TxtLog.Text.IndexOf('\n', TxtLog.Text.Length - MaxLogChars);
+                    if (cutoff >= 0)
+                    {
+                        TxtLog.Text = TxtLog.Text[(cutoff + 1)..];
+                    }
+                }
+
                 TxtLog.ScrollToEnd();
             });
         }
