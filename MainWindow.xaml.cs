@@ -5,6 +5,7 @@ using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using System.Windows;
+using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Threading;
 using System.Runtime.InteropServices;
@@ -44,7 +45,7 @@ namespace KodiListenerGui
         private const uint VK_F4 = 0x73;
         private const uint VK_F5 = 0x74;
 
-        private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(30);
+        private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(5);
         private static readonly string[] SubtitleEnabledProperty = { "subtitleenabled" };
         private static readonly string[] SubtitleStatusProperties = { "subtitles", "currentsubtitle", "subtitleenabled" };
 
@@ -52,6 +53,7 @@ namespace KodiListenerGui
         private HwndSource? _hwndSource;
         private DispatcherTimer? _pollTimer;
         private bool? _kodiReachable;
+        private bool _isFullScreen = true;
         private readonly HttpClient _httpClient = new();
         private readonly KodiSettings _settings;
 
@@ -65,6 +67,8 @@ namespace KodiListenerGui
                 byte[] credentials = Encoding.ASCII.GetBytes($"{_settings.Username}:{_settings.Password}");
                 _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Basic", Convert.ToBase64String(credentials));
             }
+
+            Loaded += (s, e) => WindowState = WindowState.Maximized;
 
             Log($"Application initialized. Kodi endpoint: {_settings.HostUrl}");
         }
@@ -95,6 +99,28 @@ namespace KodiListenerGui
             Log($"Background polling started (every {PollInterval.TotalSeconds:0}s).");
 
             _ = FetchKodiStatusAsync();
+        }
+
+        // Lets touch users without a keyboard drop to windowed mode to reach the title bar's close button.
+        private void StatusBox_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+        {
+            if (_isFullScreen)
+            {
+                WindowStyle = WindowStyle.SingleBorderWindow;
+                ResizeMode = ResizeMode.CanResize;
+                WindowState = WindowState.Normal;
+                Width = 1400;
+                Height = 800;
+                Log("Switched to windowed mode. Use the title bar's close button to exit.");
+            }
+            else
+            {
+                WindowStyle = WindowStyle.None;
+                ResizeMode = ResizeMode.NoResize;
+                WindowState = WindowState.Maximized;
+                Log("Switched to fullscreen mode.");
+            }
+            _isFullScreen = !_isFullScreen;
         }
 
         // WPF equivalent of the Win32 message loop filter
