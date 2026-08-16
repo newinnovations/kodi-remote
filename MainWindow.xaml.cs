@@ -244,11 +244,12 @@ namespace KodiListenerGui
             {
                 Dispatcher.Invoke(() =>
                 {
-                    TxtZoom.Text = "N/A";
-                    TxtActiveSubtitle.Text = "No active player";
+                    TxtZoom.Text = "";
+                    TxtActiveSubtitle.Text = "";
                     TxtNowPlaying.Text = "Nothing playing";
-                    TxtPlaybackStatus.Text = "-";
-                    TxtPosition.Text = "-";
+                    TxtPlaybackStatus.Text = "";
+                    TxtPosition.Text = "0:00 / 0:00";
+                    TxtEndsAt.Text = "";
                     PbPosition.Value = 0;
                     LstSubtitles.Items.Clear();
                 });
@@ -371,6 +372,77 @@ namespace KodiListenerGui
         }
 
         // Mirrors Kodi's own subtitle labeling, e.g. "English (eng, forced, default)" or just "Italiano" when no flags apply.
+        private static readonly Dictionary<string, string> LanguageNames = new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["eng"] = "English",
+            ["dut"] = "Dutch",
+            ["nld"] = "Dutch",
+            ["fre"] = "French",
+            ["fra"] = "French",
+            ["ger"] = "German",
+            ["deu"] = "German",
+            ["spa"] = "Spanish",
+            ["ita"] = "Italian",
+            ["por"] = "Portuguese",
+            ["rus"] = "Russian",
+            ["jpn"] = "Japanese",
+            ["chi"] = "Chinese",
+            ["zho"] = "Chinese",
+            ["kor"] = "Korean",
+            ["ara"] = "Arabic",
+            ["hin"] = "Hindi",
+            ["gre"] = "Greek",
+            ["ell"] = "Greek",
+            ["swe"] = "Swedish",
+            ["nor"] = "Norwegian",
+            ["dan"] = "Danish",
+            ["fin"] = "Finnish",
+            ["pol"] = "Polish",
+            ["tur"] = "Turkish",
+            ["heb"] = "Hebrew",
+            ["tha"] = "Thai",
+            ["vie"] = "Vietnamese",
+            ["cze"] = "Czech",
+            ["ces"] = "Czech",
+            ["hun"] = "Hungarian",
+            ["rum"] = "Romanian",
+            ["ron"] = "Romanian",
+            ["bul"] = "Bulgarian",
+            ["hrv"] = "Croatian",
+            ["slo"] = "Slovak",
+            ["slk"] = "Slovak",
+            ["slv"] = "Slovenian",
+            ["ukr"] = "Ukrainian",
+            ["est"] = "Estonian",
+            ["lav"] = "Latvian",
+            ["lit"] = "Lithuanian",
+            ["ice"] = "Icelandic",
+            ["isl"] = "Icelandic",
+            ["gle"] = "Irish",
+            ["cat"] = "Catalan",
+            ["baq"] = "Basque",
+            ["eus"] = "Basque",
+            ["glg"] = "Galician",
+            ["may"] = "Malay",
+            ["msa"] = "Malay",
+            ["ind"] = "Indonesian",
+            ["fil"] = "Filipino",
+            ["srp"] = "Serbian",
+            ["mac"] = "Macedonian",
+            ["mkd"] = "Macedonian",
+            ["alb"] = "Albanian",
+            ["sqi"] = "Albanian",
+            ["tam"] = "Tamil",
+            ["tel"] = "Telugu",
+            ["kan"] = "Kannada",
+            ["mal"] = "Malayalam",
+            ["sin"] = "Sinhala",
+            ["urd"] = "Urdu",
+            ["pus"] = "Pashto",
+            ["fas"] = "Persian",
+            ["per"] = "Persian"
+        };
+
         private static string FormatSubtitleLabel(JsonElement subtitleEl)
         {
             string name = subtitleEl.TryGetProperty("name", out var n) ? n.GetString() ?? "" : "";
@@ -378,6 +450,18 @@ namespace KodiListenerGui
             bool isForced = subtitleEl.TryGetProperty("isforced", out var f) && f.GetBoolean();
             bool isDefault = subtitleEl.TryGetProperty("isdefault", out var d) && d.GetBoolean();
             bool isImpaired = subtitleEl.TryGetProperty("isimpaired", out var i) && i.GetBoolean();
+
+            if (string.IsNullOrEmpty(name))
+            {
+                if (string.IsNullOrEmpty(language))
+                {
+                    name = "Unknown";
+                }
+                else
+                {
+                    name = LanguageNames.TryGetValue(language, out var languageName) ? languageName : language;
+                }
+            }
 
             var flags = new List<string>();
             if (!string.IsNullOrEmpty(language))
@@ -397,7 +481,7 @@ namespace KodiListenerGui
                 flags.Add("sdh");
             }
 
-            return flags.Count > 0 ? $"{name} ({string.Join(", ", flags)})" : name;
+            return flags.Count > 0 ? $"{name} [{string.Join(", ", flags)}]" : name;
         }
 
         private static string FormatTimeSpan(TimeSpan ts)

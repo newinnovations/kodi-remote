@@ -78,7 +78,7 @@
         <TextBlock Grid.Row="1" Text="Available Subtitle Tracks" Foreground="#AAA" Margin="0,0,0,5"/>
         <Border Grid.Row="1" Background="#2D2D2D" BorderBrush="#555" BorderThickness="1" Margin="0,20,0,15">
             <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
-                <ItemsControl x:Name="LstSubtitles" Foreground="#FFF" FontSize="28" Margin="8">
+                <ItemsControl x:Name="LstSubtitles" Foreground="#FFF" FontSize="30" Margin="8">
                     <ItemsControl.ItemsPanel>
                         <ItemsPanelTemplate>
                             <WrapPanel Orientation="Vertical"/>
@@ -86,7 +86,7 @@
                     </ItemsControl.ItemsPanel>
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
-                            <TextBlock Text="{Binding Text}" Margin="0,0,24,6">
+                            <TextBlock Text="{Binding Text}" Margin="0,0,50,6">
                                 <TextBlock.Style>
                                     <Style TargetType="TextBlock">
                                         <Setter Property="Foreground" Value="#CCC"/>
