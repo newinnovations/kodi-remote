@@ -15,21 +15,6 @@ using System.Windows.Interop;
 using System.Windows.Threading;
 using System.Runtime.InteropServices;
 
-// A program that listens to keys (received from a infrared to usb keyboard unit we can change to send whatever is most convenient)
-// that sends out http requests to kodi. It must listen in the background as kodi receives keys from the same unit and has the focus.
-//
-// The program will also poll kodi for the current zoom and subtitle state and display it in a simple gui.
-//
-// The program will allow the user:
-// - to change the zoom level of the video (down/up by 0.1x using Ctrl+Shift+Alt+F1/F2).
-// - to change the subtitle track of the video (using Ctrl+Shift+Alt+F3/F4).
-// - to toggle the subtitle track on/off (using Ctrl+Shift+Alt+F5).
-// - to display the current zoom level and subtitle track in the gui.
-// - show detailed logs of the requests sent to kodi and the responses received from kodi in a text box in the gui.
-//
-// Kodi's JSON-RPC API is used to send commands and query the current state. The program uses WPF for the GUI and Win32 API for global hotkey registration.
-// The Kodi JSON-RPC API is protected by username and password, which is stored in the program's settings and used for authentication in the HTTP requests.
-
 namespace KodiRemote
 {
     public partial class MainWindow : Window
