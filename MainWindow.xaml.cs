@@ -1,9 +1,10 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Net.Http;
-using System.Net.Http.Headers;
+using System.Linq;
 using System.Text;
 using System.Text.Json;
+using System.Threading;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Interop;
@@ -30,7 +31,7 @@ namespace KodiListenerGui
     public partial class MainWindow : Window
     {
         // Win32 API Imports
-        [DllImport("user32.dll")]
+        [DllImport("user32.dll", SetLastError = true)]
         private static extern bool RegisterHotKey(IntPtr hWnd, int id, uint fsModifiers, uint vk);
         [DllImport("user32.dll")]
         private static extern bool UnregisterHotKey(IntPtr hWnd, int id);
@@ -53,21 +54,18 @@ namespace KodiListenerGui
         private IntPtr _windowHandle;
         private HwndSource? _hwndSource;
         private DispatcherTimer? _pollTimer;
-        private bool? _kodiReachable;
         private bool _isFullScreen = true;
-        private readonly HttpClient _httpClient = new();
         private readonly KodiSettings _settings;
+        private readonly KodiClient _kodiClient;
+        private readonly CancellationTokenSource _shutdownCts = new();
+        private readonly SemaphoreSlim _kodiOperationLock = new(1, 1);
+        private readonly List<int> _registeredHotkeyIds = new();
 
         public MainWindow()
         {
             InitializeComponent();
-            _settings = KodiSettings.Load();
-
-            if (!string.IsNullOrEmpty(_settings.Username))
-            {
-                byte[] credentials = Encoding.ASCII.GetBytes($"{_settings.Username}:{_settings.Password}");
-                _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Basic", Convert.ToBase64String(credentials));
-            }
+            _settings = KodiSettings.Load(Log);
+            _kodiClient = new KodiClient(_settings.HostUrl, _settings.Username, _settings.Password, Log);
 
             Loaded += (s, e) => WindowState = WindowState.Maximized;
 
@@ -85,21 +83,74 @@ namespace KodiListenerGui
 
             uint modifiers = MOD_CONTROL | MOD_SHIFT | MOD_ALT;
 
-            // Register Hotkeys tied to this window's handle
-            RegisterHotKey(_windowHandle, 1, modifiers, VK_F1);
-            RegisterHotKey(_windowHandle, 2, modifiers, VK_F2);
-            RegisterHotKey(_windowHandle, 3, modifiers, VK_F3);
-            RegisterHotKey(_windowHandle, 4, modifiers, VK_F4);
-            RegisterHotKey(_windowHandle, 5, modifiers, VK_F5);
+            // Register Hotkeys tied to this window's handle, tracking only the ones that actually succeeded
+            TryRegisterHotkey(1, modifiers, VK_F1, "Zoom out (Ctrl+Shift+Alt+F1)");
+            TryRegisterHotkey(2, modifiers, VK_F2, "Zoom in (Ctrl+Shift+Alt+F2)");
+            TryRegisterHotkey(3, modifiers, VK_F3, "Previous subtitle (Ctrl+Shift+Alt+F3)");
+            TryRegisterHotkey(4, modifiers, VK_F4, "Next subtitle (Ctrl+Shift+Alt+F4)");
+            TryRegisterHotkey(5, modifiers, VK_F5, "Toggle subtitle (Ctrl+Shift+Alt+F5)");
 
-            Log("Global Hotkeys registered (Ctrl+Shift+Alt+F1-F5).");
+            Log(_registeredHotkeyIds.Count == 5
+                ? "Global Hotkeys registered (Ctrl+Shift+Alt+F1-F5)."
+                : $"Global Hotkeys: only {_registeredHotkeyIds.Count} of 5 registered; some bindings may be unavailable (see log above).");
 
             _pollTimer = new DispatcherTimer { Interval = PollInterval };
-            _pollTimer.Tick += async (s, e) => await FetchKodiStatusAsync();
+            _pollTimer.Tick += async (s, e) => await RunExclusiveAsync(FetchKodiStatusAsync, "scheduled status poll", skipIfBusy: true);
             _pollTimer.Start();
             Log($"Background polling started (every {PollInterval.TotalSeconds:0}s).");
 
-            _ = FetchKodiStatusAsync();
+            _ = RunExclusiveAsync(FetchKodiStatusAsync, "initial status fetch", skipIfBusy: true);
+        }
+
+        private void TryRegisterHotkey(int id, uint modifiers, uint vk, string description)
+        {
+            if (RegisterHotKey(_windowHandle, id, modifiers, vk))
+            {
+                _registeredHotkeyIds.Add(id);
+            }
+            else
+            {
+                int error = Marshal.GetLastWin32Error();
+                Log($"Failed to register hotkey '{description}' (Win32 error {error}); it may already be bound by another application.");
+            }
+        }
+
+        // Ensures scheduled polls and hotkey-driven commands never run concurrently against Kodi.
+        // Scheduled polls are skipped (not queued) when busy; user-driven hotkey actions wait their turn.
+        private async Task RunExclusiveAsync(Func<Task> action, string operationName, bool skipIfBusy)
+        {
+            bool acquired;
+            try
+            {
+                acquired = await _kodiOperationLock.WaitAsync(skipIfBusy ? 0 : Timeout.Infinite, _shutdownCts.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+
+            if (!acquired)
+            {
+                Log($"Skipping {operationName}; a previous Kodi operation is still in progress.");
+                return;
+            }
+
+            try
+            {
+                await action();
+            }
+            catch (OperationCanceledException)
+            {
+                // Window is closing; nothing to report.
+            }
+            catch (Exception ex)
+            {
+                Log($"Unexpected error during {operationName}: {ex.Message}");
+            }
+            finally
+            {
+                _kodiOperationLock.Release();
+            }
         }
 
         // Lets touch users without a keyboard drop to windowed mode to reach the title bar's close button.
@@ -138,7 +189,7 @@ namespace KodiListenerGui
             if (msg == WM_HOTKEY)
             {
                 int hotkeyId = wParam.ToInt32();
-                _ = HandleHotkeyAsync(hotkeyId);
+                _ = RunExclusiveAsync(() => HandleHotkeyAsync(hotkeyId), $"hotkey {hotkeyId}", skipIfBusy: false);
                 handled = true; // Tell Windows we processed this message
             }
             return IntPtr.Zero;
@@ -175,72 +226,99 @@ namespace KodiListenerGui
             _pollTimer?.Start();
         }
 
-        private async Task<int?> GetActivePlayerIdAsync()
+        private enum PlayerLookupStatus { Found, NonePlaying, ConnectionError }
+
+        private readonly record struct PlayerLookupResult(PlayerLookupStatus Status, int PlayerId, string? ErrorMessage);
+
+        private async Task<PlayerLookupResult> GetActivePlayerAsync()
         {
-            var players = await SendKodiRequestAsync("Player.GetActivePlayers");
-            if (players.ValueKind == JsonValueKind.Array && players.GetArrayLength() > 0)
+            var response = await _kodiClient.SendRequestAsync("Player.GetActivePlayers", cancellationToken: _shutdownCts.Token);
+            if (!response.Success)
             {
-                return players[0].GetProperty("playerid").GetInt32();
+                return new PlayerLookupResult(PlayerLookupStatus.ConnectionError, -1, response.ErrorMessage);
             }
-            return null;
+
+            if (response.Result.ValueKind == JsonValueKind.Array
+                && response.Result.GetArrayLength() > 0
+                && TryGetInt32(response.Result[0], "playerid", out int playerId))
+            {
+                return new PlayerLookupResult(PlayerLookupStatus.Found, playerId, null);
+            }
+
+            return new PlayerLookupResult(PlayerLookupStatus.NonePlaying, -1, null);
         }
 
         private async Task<double> GetCurrentZoomAsync()
         {
-            var viewMode = await SendKodiRequestAsync("Player.GetViewMode");
-            return viewMode.ValueKind == JsonValueKind.Object && viewMode.TryGetProperty("zoom", out var zoomEl)
-                ? zoomEl.GetDouble()
-                : 1.0;
+            var viewMode = await _kodiClient.SendRequestAsync("Player.GetViewMode", cancellationToken: _shutdownCts.Token);
+            return viewMode.Success && TryGetDouble(viewMode.Result, "zoom", out double zoom) ? zoom : 1.0;
         }
 
         private async Task AdjustZoomAsync(double delta)
         {
-            if (await GetActivePlayerIdAsync() is not int playerId)
+            var player = await GetActivePlayerAsync();
+            if (player.Status != PlayerLookupStatus.Found)
             {
-                Log("No active player to adjust zoom.");
+                Log(player.Status == PlayerLookupStatus.ConnectionError
+                    ? $"Cannot adjust zoom; Kodi is unreachable: {player.ErrorMessage}"
+                    : "No active player to adjust zoom.");
                 return;
             }
 
             double currentZoom = await GetCurrentZoomAsync();
             double newZoom = Math.Clamp(currentZoom + delta, 0.1, 5.0);
             Log($"Adjusting zoom {currentZoom:0.00}x -> {newZoom:0.00}x");
-            await SendKodiRequestAsync("Player.SetViewMode", new { viewmode = new { zoom = newZoom } });
+            await _kodiClient.SendRequestAsync("Player.SetViewMode", new { viewmode = new { zoom = newZoom } }, cancellationToken: _shutdownCts.Token);
         }
 
         private async Task SetSubtitleAsync(string direction)
         {
-            if (await GetActivePlayerIdAsync() is not int playerId)
+            var player = await GetActivePlayerAsync();
+            if (player.Status != PlayerLookupStatus.Found)
             {
-                Log("No active player to change subtitle.");
+                Log(player.Status == PlayerLookupStatus.ConnectionError
+                    ? $"Cannot change subtitle; Kodi is unreachable: {player.ErrorMessage}"
+                    : "No active player to change subtitle.");
                 return;
             }
 
             Log($"Setting subtitle track: {direction}");
-            await SendKodiRequestAsync("Player.SetSubtitle", new { playerid = playerId, subtitle = direction, enable = true });
+            await _kodiClient.SendRequestAsync("Player.SetSubtitle", new { playerid = player.PlayerId, subtitle = direction, enable = true }, cancellationToken: _shutdownCts.Token);
         }
 
         private async Task ToggleSubtitleAsync()
         {
-            if (await GetActivePlayerIdAsync() is not int playerId)
+            var player = await GetActivePlayerAsync();
+            if (player.Status != PlayerLookupStatus.Found)
             {
-                Log("No active player to toggle subtitle.");
+                Log(player.Status == PlayerLookupStatus.ConnectionError
+                    ? $"Cannot toggle subtitle; Kodi is unreachable: {player.ErrorMessage}"
+                    : "No active player to toggle subtitle.");
                 return;
             }
 
-            var properties = await SendKodiRequestAsync("Player.GetProperties", new { playerid = playerId, properties = SubtitleEnabledProperty });
-            bool currentlyEnabled = properties.ValueKind == JsonValueKind.Object
-                && properties.TryGetProperty("subtitleenabled", out var enabledEl)
-                && enabledEl.GetBoolean();
+            var properties = await _kodiClient.SendRequestAsync("Player.GetProperties", new { playerid = player.PlayerId, properties = SubtitleEnabledProperty }, cancellationToken: _shutdownCts.Token);
+            bool currentlyEnabled = properties.Success && TryGetBool(properties.Result, "subtitleenabled", out bool enabled) && enabled;
 
             Log($"Toggling subtitles {(currentlyEnabled ? "off" : "on")}");
-            await SendKodiRequestAsync("Player.SetSubtitle", new { playerid = playerId, subtitle = currentlyEnabled ? "off" : "on" });
+            await _kodiClient.SendRequestAsync("Player.SetSubtitle", new { playerid = player.PlayerId, subtitle = currentlyEnabled ? "off" : "on" }, cancellationToken: _shutdownCts.Token);
         }
 
         private async Task FetchKodiStatusAsync()
         {
             Log("Polling current playback state from Kodi...");
 
-            if (await GetActivePlayerIdAsync() is not int playerId)
+            var player = await GetActivePlayerAsync();
+
+            if (player.Status == PlayerLookupStatus.ConnectionError)
+            {
+                // Preserve whatever was last displayed instead of masking an outage as "nothing playing".
+                Log($"Status refresh skipped; Kodi is unreachable: {player.ErrorMessage}");
+                Dispatcher.Invoke(() => TxtPlaybackStatus.Text = "\u26a0 Connection error - showing last known state");
+                return;
+            }
+
+            if (player.Status == PlayerLookupStatus.NonePlaying)
             {
                 Dispatcher.Invoke(() =>
                 {
@@ -256,42 +334,55 @@ namespace KodiListenerGui
                 return;
             }
 
-            var properties = await SendKodiRequestAsync("Player.GetProperties", new
-            {
-                playerid = playerId,
-                properties = PlayerStatusProperties
-            });
-            var item = await SendKodiRequestAsync("Player.GetItem", new { playerid = playerId, properties = TitleRequestProperty });
-            double zoom = await GetCurrentZoomAsync();
+            int playerId = player.PlayerId;
 
-            bool subtitleEnabled = properties.ValueKind == JsonValueKind.Object
-                && properties.TryGetProperty("subtitleenabled", out var enabledEl)
-                && enabledEl.GetBoolean();
+            // A single JSON-RPC batch replaces three sequential requests to cut latency and overlap risk.
+            var batch = await _kodiClient.SendBatchAsync(new (string Method, object? Parameters)[]
+            {
+                ("Player.GetProperties", new { playerid = playerId, properties = PlayerStatusProperties }),
+                ("Player.GetItem", new { playerid = playerId, properties = TitleRequestProperty }),
+                ("Player.GetViewMode", null)
+            }, _shutdownCts.Token);
+
+            var propertiesResponse = batch[0];
+            var itemResponse = batch[1];
+            var viewModeResponse = batch[2];
+
+            if (!propertiesResponse.Success && propertiesResponse.IsConnectionError)
+            {
+                Log($"Status refresh incomplete; Kodi is unreachable: {propertiesResponse.ErrorMessage}");
+                Dispatcher.Invoke(() => TxtPlaybackStatus.Text = "\u26a0 Connection error - showing last known state");
+                return;
+            }
+
+            var properties = propertiesResponse.Result;
+            double zoom = viewModeResponse.Success && TryGetDouble(viewModeResponse.Result, "zoom", out double zoomValue) ? zoomValue : 1.0;
+
+            bool subtitleEnabled = TryGetBool(properties, "subtitleenabled", out bool subtitlesOn) && subtitlesOn;
 
             int currentIndex = -1;
             string activeSubtitleText = "Disabled";
-            if (properties.ValueKind == JsonValueKind.Object
-                && properties.TryGetProperty("currentsubtitle", out var currentEl)
-                && currentEl.ValueKind == JsonValueKind.Object)
+            if (TryGetObject(properties, "currentsubtitle", out var currentEl))
             {
-                if (currentEl.TryGetProperty("index", out var idxEl))
+                if (TryGetInt32(currentEl, "index", out int idx))
                 {
-                    currentIndex = idxEl.GetInt32();
+                    currentIndex = idx;
                 }
-                if (subtitleEnabled && currentEl.TryGetProperty("name", out var nameEl))
+                if (subtitleEnabled)
                 {
                     activeSubtitleText = FormatSubtitleLabel(currentEl);
                 }
             }
 
             var subtitleLines = new List<SubtitleTrackItem>();
-            if (properties.ValueKind == JsonValueKind.Object
-                && properties.TryGetProperty("subtitles", out var subsEl)
-                && subsEl.ValueKind == JsonValueKind.Array)
+            if (TryGetArray(properties, "subtitles", out var subsEl))
             {
                 foreach (var sub in subsEl.EnumerateArray())
                 {
-                    int index = sub.GetProperty("index").GetInt32();
+                    if (!TryGetInt32(sub, "index", out int index))
+                    {
+                        continue; // Malformed entry from Kodi; skip rather than throw.
+                    }
                     bool isSelected = index == currentIndex && subtitleEnabled;
                     subtitleLines.Add(new SubtitleTrackItem
                     {
@@ -302,31 +393,23 @@ namespace KodiListenerGui
             }
 
             string nowPlaying = "Nothing playing";
-            if (item.ValueKind == JsonValueKind.Object
-                && item.TryGetProperty("item", out var itemEl)
-                && itemEl.ValueKind == JsonValueKind.Object)
+            if (itemResponse.Success && TryGetObject(itemResponse.Result, "item", out var itemEl))
             {
-                if (itemEl.TryGetProperty("label", out var labelEl) && !string.IsNullOrEmpty(labelEl.GetString()))
+                if (TryGetString(itemEl, "label", out string label) && !string.IsNullOrEmpty(label))
                 {
-                    nowPlaying = labelEl.GetString()!;
+                    nowPlaying = label;
                 }
-                else if (itemEl.TryGetProperty("title", out var titleEl) && !string.IsNullOrEmpty(titleEl.GetString()))
+                else if (TryGetString(itemEl, "title", out string title) && !string.IsNullOrEmpty(title))
                 {
-                    nowPlaying = titleEl.GetString()!;
+                    nowPlaying = title;
                 }
             }
 
-            int speed = properties.ValueKind == JsonValueKind.Object && properties.TryGetProperty("speed", out var speedEl)
-                ? speedEl.GetInt32()
-                : 0;
+            int speed = TryGetInt32(properties, "speed", out int speedValue) ? speedValue : 0;
             string playbackStatus = speed == 0 ? "Paused" : speed == 1 ? "Playing" : $"Playing ({speed}x)";
 
-            TimeSpan position = properties.ValueKind == JsonValueKind.Object && properties.TryGetProperty("time", out var timeEl)
-                ? ParseKodiTime(timeEl)
-                : TimeSpan.Zero;
-            TimeSpan total = properties.ValueKind == JsonValueKind.Object && properties.TryGetProperty("totaltime", out var totalTimeEl)
-                ? ParseKodiTime(totalTimeEl)
-                : TimeSpan.Zero;
+            TimeSpan position = TryGetObject(properties, "time", out var timeEl) ? ParseKodiTime(timeEl) : TimeSpan.Zero;
+            TimeSpan total = TryGetObject(properties, "totaltime", out var totalTimeEl) ? ParseKodiTime(totalTimeEl) : TimeSpan.Zero;
 
             string positionText = FormatTimeSpan(position);
             string endsAtText = "--:--";
@@ -365,10 +448,77 @@ namespace KodiListenerGui
 
         private static TimeSpan ParseKodiTime(JsonElement timeEl)
         {
-            int hours = timeEl.TryGetProperty("hours", out var h) ? h.GetInt32() : 0;
-            int minutes = timeEl.TryGetProperty("minutes", out var m) ? m.GetInt32() : 0;
-            int seconds = timeEl.TryGetProperty("seconds", out var s) ? s.GetInt32() : 0;
+            int hours = TryGetInt32(timeEl, "hours", out int h) ? h : 0;
+            int minutes = TryGetInt32(timeEl, "minutes", out int m) ? m : 0;
+            int seconds = TryGetInt32(timeEl, "seconds", out int s) ? s : 0;
             return new TimeSpan(hours, minutes, seconds);
+        }
+
+        // Defensive JsonElement accessors: Kodi's response shape can vary across versions/proxies,
+        // so every optional field is validated for presence and kind before being read.
+        private static bool TryGetInt32(JsonElement obj, string name, out int value)
+        {
+            value = 0;
+            return obj.ValueKind == JsonValueKind.Object
+                && obj.TryGetProperty(name, out var prop)
+                && prop.ValueKind == JsonValueKind.Number
+                && prop.TryGetInt32(out value);
+        }
+
+        private static bool TryGetDouble(JsonElement obj, string name, out double value)
+        {
+            value = 0;
+            if (obj.ValueKind == JsonValueKind.Object && obj.TryGetProperty(name, out var prop) && prop.ValueKind == JsonValueKind.Number)
+            {
+                value = prop.GetDouble();
+                return true;
+            }
+            return false;
+        }
+
+        private static bool TryGetBool(JsonElement obj, string name, out bool value)
+        {
+            value = false;
+            if (obj.ValueKind == JsonValueKind.Object && obj.TryGetProperty(name, out var prop)
+                && (prop.ValueKind == JsonValueKind.True || prop.ValueKind == JsonValueKind.False))
+            {
+                value = prop.GetBoolean();
+                return true;
+            }
+            return false;
+        }
+
+        private static bool TryGetString(JsonElement obj, string name, out string value)
+        {
+            value = "";
+            if (obj.ValueKind == JsonValueKind.Object && obj.TryGetProperty(name, out var prop) && prop.ValueKind == JsonValueKind.String)
+            {
+                value = prop.GetString() ?? "";
+                return true;
+            }
+            return false;
+        }
+
+        private static bool TryGetObject(JsonElement obj, string name, out JsonElement value)
+        {
+            value = default;
+            if (obj.ValueKind == JsonValueKind.Object && obj.TryGetProperty(name, out var prop) && prop.ValueKind == JsonValueKind.Object)
+            {
+                value = prop;
+                return true;
+            }
+            return false;
+        }
+
+        private static bool TryGetArray(JsonElement obj, string name, out JsonElement value)
+        {
+            value = default;
+            if (obj.ValueKind == JsonValueKind.Object && obj.TryGetProperty(name, out var prop) && prop.ValueKind == JsonValueKind.Array)
+            {
+                value = prop;
+                return true;
+            }
+            return false;
         }
 
         // Mirrors Kodi's own subtitle labeling, e.g. "English (eng, forced, default)" or just "Italiano" when no flags apply.
@@ -445,11 +595,11 @@ namespace KodiListenerGui
 
         private static string FormatSubtitleLabel(JsonElement subtitleEl)
         {
-            string name = subtitleEl.TryGetProperty("name", out var n) ? n.GetString() ?? "" : "";
-            string language = subtitleEl.TryGetProperty("language", out var l) ? l.GetString() ?? "" : "";
-            bool isForced = subtitleEl.TryGetProperty("isforced", out var f) && f.GetBoolean();
-            bool isDefault = subtitleEl.TryGetProperty("isdefault", out var d) && d.GetBoolean();
-            bool isImpaired = subtitleEl.TryGetProperty("isimpaired", out var i) && i.GetBoolean();
+            TryGetString(subtitleEl, "name", out string name);
+            TryGetString(subtitleEl, "language", out string language);
+            bool isForced = TryGetBool(subtitleEl, "isforced", out bool forced) && forced;
+            bool isDefault = TryGetBool(subtitleEl, "isdefault", out bool @default) && @default;
+            bool isImpaired = TryGetBool(subtitleEl, "isimpaired", out bool impaired) && impaired;
 
             if (string.IsNullOrEmpty(name))
             {
@@ -491,52 +641,6 @@ namespace KodiListenerGui
                 : $"{ts.Minutes}:{ts.Seconds:00}";
         }
 
-        private async Task<JsonElement> SendKodiRequestAsync(string method, object? parameters = null)
-        {
-            var payload = new
-            {
-                jsonrpc = "2.0",
-                method,
-                @params = parameters ?? new { },
-                id = 1
-            };
-            string jsonPayload = JsonSerializer.Serialize(payload);
-
-            try
-            {
-                var content = new StringContent(jsonPayload, Encoding.UTF8, "application/json");
-                var response = await _httpClient.PostAsync(_settings.HostUrl, content);
-                string body = await response.Content.ReadAsStringAsync();
-                Log($"{method} -> {response.StatusCode}");
-
-                if (_kodiReachable != true)
-                {
-                    Log("Kodi is reachable.");
-                }
-                _kodiReachable = true;
-
-                using var document = JsonDocument.Parse(body);
-                if (document.RootElement.TryGetProperty("result", out var result))
-                {
-                    return result.Clone();
-                }
-                if (document.RootElement.TryGetProperty("error", out var error))
-                {
-                    Log($"Kodi error: {error}");
-                }
-            }
-            catch (Exception ex)
-            {
-                if (_kodiReachable != false)
-                {
-                    Log($"Kodi is unavailable: {ex.Message}");
-                }
-                _kodiReachable = false;
-            }
-
-            return default;
-        }
-
         private const int MaxLogChars = 20000;
 
         private void Log(string message)
@@ -562,13 +666,15 @@ namespace KodiListenerGui
 
         protected override void OnClosed(EventArgs e)
         {
+            _shutdownCts.Cancel();
             _pollTimer?.Stop();
             _hwndSource?.RemoveHook(HwndHook);
-            UnregisterHotKey(_windowHandle, 1);
-            UnregisterHotKey(_windowHandle, 2);
-            UnregisterHotKey(_windowHandle, 3);
-            UnregisterHotKey(_windowHandle, 4);
-            UnregisterHotKey(_windowHandle, 5);
+            foreach (int id in _registeredHotkeyIds)
+            {
+                UnregisterHotKey(_windowHandle, id);
+            }
+            _kodiClient.Dispose();
+            _shutdownCts.Dispose();
             base.OnClosed(e);
         }
     }
