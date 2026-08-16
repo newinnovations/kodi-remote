@@ -1,4 +1,4 @@
-# KodiListenerGui review
+# KodiRemote review
 
 **Scope:** source, project configuration, and release script reviewed on 2026-08-16. The repository is a compact WPF controller with a clear purpose, sensible bounded in-window logging, and cleanup for the registered window hook. No automated tests, CI configuration, or user-facing documentation are present. A build could not be run in this environment because the .NET SDK is not installed (`dotnet: command not found`).
 

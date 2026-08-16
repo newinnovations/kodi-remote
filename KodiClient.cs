@@ -8,7 +8,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace KodiListenerGui
+namespace KodiRemote
 {
     // Result of a single Kodi JSON-RPC call. Distinguishes a transport/connection failure
     // from a JSON-RPC application error, and from a successful result, so callers never

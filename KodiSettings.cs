@@ -2,7 +2,7 @@ using System;
 using System.IO;
 using System.Text.Json;
 
-namespace KodiListenerGui
+namespace KodiRemote
 {
     // Persisted Kodi connection details, stored alongside the executable.
     public class KodiSettings

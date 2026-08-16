@@ -1,6 +1,10 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
+using System.Net;
+using System.Net.NetworkInformation;
+using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
@@ -26,7 +30,7 @@ using System.Runtime.InteropServices;
 // Kodi's JSON-RPC API is used to send commands and query the current state. The program uses WPF for the GUI and Win32 API for global hotkey registration.
 // The Kodi JSON-RPC API is protected by username and password, which is stored in the program's settings and used for authentication in the HTTP requests.
 
-namespace KodiListenerGui
+namespace KodiRemote
 {
     public partial class MainWindow : Window
     {
@@ -35,6 +39,20 @@ namespace KodiListenerGui
         private static extern bool RegisterHotKey(IntPtr hWnd, int id, uint fsModifiers, uint vk);
         [DllImport("user32.dll")]
         private static extern bool UnregisterHotKey(IntPtr hWnd, int id);
+        [DllImport("user32.dll")]
+        private static extern IntPtr GetForegroundWindow();
+        [DllImport("user32.dll")]
+        private static extern bool SetForegroundWindow(IntPtr hWnd);
+        [DllImport("user32.dll")]
+        private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+        [DllImport("user32.dll")]
+        private static extern bool IsIconic(IntPtr hWnd);
+        [DllImport("user32.dll")]
+        private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+        [DllImport("user32.dll")]
+        private static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool fAttach);
+        [DllImport("kernel32.dll")]
+        private static extern uint GetCurrentThreadId();
 
         private const int WM_HOTKEY = 0x0312;
         private const uint MOD_CONTROL = 0x0002;
@@ -45,8 +63,11 @@ namespace KodiListenerGui
         private const uint VK_F3 = 0x72;
         private const uint VK_F4 = 0x73;
         private const uint VK_F5 = 0x74;
+        private const int SW_RESTORE = 9;
+        private const string KodiProcessName = "kodi";
 
         private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(5);
+        private static readonly TimeSpan FocusCheckInterval = TimeSpan.FromSeconds(3);
         private static readonly string[] SubtitleEnabledProperty = { "subtitleenabled" };
         private static readonly string[] PlayerStatusProperties = { "subtitles", "currentsubtitle", "subtitleenabled", "speed", "time", "totaltime" };
         private static readonly string[] TitleRequestProperty = { "title" };
@@ -54,6 +75,7 @@ namespace KodiListenerGui
         private IntPtr _windowHandle;
         private HwndSource? _hwndSource;
         private DispatcherTimer? _pollTimer;
+        private DispatcherTimer? _focusCheckTimer;
         private bool _isFullScreen = true;
         private readonly KodiSettings _settings;
         private readonly KodiClient _kodiClient;
@@ -100,6 +122,106 @@ namespace KodiListenerGui
             Log($"Background polling started (every {PollInterval.TotalSeconds:0}s).");
 
             _ = RunExclusiveAsync(FetchKodiStatusAsync, "initial status fetch", skipIfBusy: true);
+
+            if (IsKodiHostLocal())
+            {
+                Log($"Kodi endpoint resolves to this machine; will check every {FocusCheckInterval.TotalSeconds:0}s that Kodi has window focus.");
+                _focusCheckTimer = new DispatcherTimer { Interval = FocusCheckInterval };
+                _focusCheckTimer.Tick += (s, e) => EnsureKodiHasFocus();
+                _focusCheckTimer.Start();
+            }
+        }
+
+        // Only relevant when Kodi runs on this same machine: the IR unit's keys go to whichever
+        // window is focused, so if something else steals focus Kodi silently stops receiving them.
+        private bool IsKodiHostLocal()
+        {
+            try
+            {
+                string host = new Uri(_settings.HostUrl).Host;
+
+                if (string.Equals(host, "localhost", StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+
+                if (IPAddress.TryParse(host, out var parsedAddress) && IPAddress.IsLoopback(parsedAddress))
+                {
+                    return true;
+                }
+
+                var targetAddresses = Dns.GetHostAddresses(host);
+                var localAddresses = NetworkInterface.GetAllNetworkInterfaces()
+                    .SelectMany(nic => nic.GetIPProperties().UnicastAddresses)
+                    .Select(ua => ua.Address);
+
+                return targetAddresses.Any(localAddresses.Contains);
+            }
+            catch (Exception ex) when (ex is UriFormatException or SocketException)
+            {
+                Log($"Could not determine whether Kodi runs locally: {ex.Message}");
+                return false;
+            }
+        }
+
+        // Brings Kodi's window to the foreground if some other window has stolen focus - this app's
+        // own window (it runs on a second screen) is not exempt, since the IR unit's keys must reach Kodi.
+        private void EnsureKodiHasFocus()
+        {
+            IntPtr kodiHandle = FindKodiWindow();
+            if (kodiHandle == IntPtr.Zero)
+            {
+                return;
+            }
+
+            IntPtr foregroundWindow = GetForegroundWindow();
+            if (foregroundWindow == kodiHandle)
+            {
+                return;
+            }
+
+            Log("Kodi lost window focus; attempting to restore it.");
+
+            if (IsIconic(kodiHandle))
+            {
+                ShowWindow(kodiHandle, SW_RESTORE);
+            }
+
+            // SetForegroundWindow is normally blocked for a background process; briefly attaching to
+            // the currently focused thread's input queue is the standard workaround for that restriction.
+            uint foregroundThreadId = GetWindowThreadProcessId(foregroundWindow, out _);
+            uint currentThreadId = GetCurrentThreadId();
+            bool attached = foregroundThreadId != currentThreadId && AttachThreadInput(currentThreadId, foregroundThreadId, true);
+
+            try
+            {
+                if (!SetForegroundWindow(kodiHandle))
+                {
+                    Log("Failed to restore focus to Kodi.");
+                }
+            }
+            finally
+            {
+                if (attached)
+                {
+                    AttachThreadInput(currentThreadId, foregroundThreadId, false);
+                }
+            }
+        }
+
+        private static IntPtr FindKodiWindow()
+        {
+            foreach (var process in Process.GetProcessesByName(KodiProcessName))
+            {
+                using (process)
+                {
+                    if (process.MainWindowHandle != IntPtr.Zero)
+                    {
+                        return process.MainWindowHandle;
+                    }
+                }
+            }
+            return IntPtr.Zero;
         }
 
         private void TryRegisterHotkey(int id, uint modifiers, uint vk, string description)
@@ -314,7 +436,7 @@ namespace KodiListenerGui
             {
                 // Preserve whatever was last displayed instead of masking an outage as "nothing playing".
                 Log($"Status refresh skipped; Kodi is unreachable: {player.ErrorMessage}");
-                Dispatcher.Invoke(() => TxtPlaybackStatus.Text = "\u26a0 Connection error - showing last known state");
+                Dispatcher.Invoke(() => TxtPlaybackStatus.Text = "\u26a0 Connection error");
                 return;
             }
 
@@ -351,7 +473,7 @@ namespace KodiListenerGui
             if (!propertiesResponse.Success && propertiesResponse.IsConnectionError)
             {
                 Log($"Status refresh incomplete; Kodi is unreachable: {propertiesResponse.ErrorMessage}");
-                Dispatcher.Invoke(() => TxtPlaybackStatus.Text = "\u26a0 Connection error - showing last known state");
+                Dispatcher.Invoke(() => TxtPlaybackStatus.Text = "\u26a0 Not connected");
                 return;
             }
 
@@ -418,15 +540,15 @@ namespace KodiListenerGui
             {
                 positionText += $" / {FormatTimeSpan(total)}";
                 progress = Math.Clamp(position.TotalSeconds / total.TotalSeconds, 0, 1);
-                if (speed > 0)
-                {
+                // if (speed > 0)
+                // {
                     TimeSpan remaining = total - position;
                     if (remaining < TimeSpan.Zero)
                     {
                         remaining = TimeSpan.Zero;
                     }
                     endsAtText = DateTime.Now.Add(remaining).ToString("HH:mm");
-                }
+                // }
             }
 
             Dispatcher.Invoke(() =>
@@ -668,6 +790,7 @@ namespace KodiListenerGui
         {
             _shutdownCts.Cancel();
             _pollTimer?.Stop();
+            _focusCheckTimer?.Stop();
             _hwndSource?.RemoveHook(HwndHook);
             foreach (int id in _registeredHotkeyIds)
             {

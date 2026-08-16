@@ -1,7 +1,7 @@
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 
-namespace KodiListenerGui
+namespace KodiRemote
 {
     // Display model for a single row in the subtitle track list.
     public class SubtitleTrackItem : INotifyPropertyChanged
